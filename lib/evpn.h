@@ -1,0 +1,40 @@
+/*
+ *	BIRD Internet Routing Daemon -- EVPN Net Type
+ *
+ *	(c) 2023 Ondrej Zajicek <santiago@crfreenet.org>
+ *	(c) 2023 CZ.NIC z.s.p.o.
+ *
+ *	Can be freely distributed and used under the terms of the GNU GPL.
+ */
+
+#ifndef _BIRD_EVPN_H_
+#define _BIRD_EVPN_H_
+
+enum evpn_net_type {
+  NET_EVPN_ETH		=  1,
+  NET_EVPN_MAC		=  2,
+  NET_EVPN_IMET		=  3,
+  NET_EVPN_ES		=  4,
+  NET_EVPN_MAX
+};
+
+enum evpn_esi_type {
+  EVPN_ESI_MANUAL	= 0,
+  EVPN_ESI_LACP		= 1,
+  EVPN_ESI_MAX
+};
+
+typedef struct evpn_esi {
+  u8 type;
+  u8 value[9];
+} evpn_esi;
+
+typedef struct mac_addr {
+  u8 addr[6];
+} mac_addr;
+
+
+union net_addr_evpn;
+uint evpn_format(char *buf, uint blen, const union net_addr_evpn *n);
+
+#endif

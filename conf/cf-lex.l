@@ -255,7 +255,22 @@ WHITE [ \t]
   return IP4;
 }
 
-{XIGIT}{2}((:{XIGIT}{2}){15,}|({XIGIT}{2}){15,}) {
+{XIGIT}{2}(:{XIGIT}{2}){5} {
+  mac_addr mac;
+  char *s = yytext;
+
+  for (int i = 0; i < 6; i++) {
+    mac.addr[i] = bstrtobyte16(s);
+    s += 2;
+    if (*s == ':')
+      s++;
+  }
+  cf_lval.mac = mac;
+
+  return MAC_;
+}
+
+{XIGIT}{2}((:{XIGIT}{2}){8,}|({XIGIT}{2}){8,}) {
   char *s = yytext;
   size_t len = 0, i;
   struct bytestring *bytes;
