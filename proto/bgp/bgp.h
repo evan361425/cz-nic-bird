@@ -27,10 +27,12 @@ struct eattr;
 
 #define BGP_AFI_IPV4		1
 #define BGP_AFI_IPV6		2
+#define BGP_AFI_L2VPN		25
 
 #define BGP_SAFI_UNICAST	1
 #define BGP_SAFI_MULTICAST	2
 #define BGP_SAFI_MPLS		4
+#define BGP_SAFI_EVPN		70
 #define BGP_SAFI_MPLS_VPN	128
 #define BGP_SAFI_VPN_MULTICAST	129
 #define BGP_SAFI_FLOW		133
@@ -53,6 +55,7 @@ struct eattr;
 #define BGP_AF_VPN6_MC		BGP_AF( BGP_AFI_IPV6, BGP_SAFI_VPN_MULTICAST )
 #define BGP_AF_FLOW4		BGP_AF( BGP_AFI_IPV4, BGP_SAFI_FLOW )
 #define BGP_AF_FLOW6		BGP_AF( BGP_AFI_IPV6, BGP_SAFI_FLOW )
+#define BGP_AF_EVPN		BGP_AF( BGP_AFI_L2VPN, BGP_SAFI_EVPN )
 
 
 struct bgp_write_state;

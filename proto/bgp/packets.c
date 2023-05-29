@@ -34,6 +34,7 @@
 #define BGP_RR_END		2
 
 #define BGP_NLRI_MAX		(4 + 1 + 32)
+#define BGP_NLRI_EVPN_MAX	(4 + 2 + 52)
 
 #define BGP_MPLS_BOS		1	/* Bottom-of-stack bit */
 #define BGP_MPLS_MAX		10	/* Max number of labels that 24*n <= 255 */
@@ -1237,6 +1238,7 @@ bgp_update_next_hop_ip(struct bgp_export_state *s, eattr *a, ea_list **to)
     REJECT(BAD_NEXT_HOP " - neighbor address %I", peer);
 
   /* Forbid next hop with non-matching AF */
+  if (s->channel->afi != BGP_AF_EVPN) /* XXX hack */
   if ((ipa_is_ip4(nh[0]) != bgp_channel_is_ipv4(s->channel)) &&
       !s->channel->ext_next_hop)
     REJECT(BAD_NEXT_HOP MISMATCHED_AF, nh[0], s->channel->desc->name);
@@ -1313,6 +1315,7 @@ bgp_decode_next_hop_ip(struct bgp_parse_state *s, byte *data, uint len, rta *a)
   if (ipa_zero(nh[1]))
     ad->length = 16;
 
+  if (s->channel->afi != BGP_AF_EVPN) /* XXX hack */
   if ((bgp_channel_is_ipv4(c) != ipa_is_ip4(nh[0])) && !c->ext_next_hop)
     WITHDRAW(BAD_NEXT_HOP MISMATCHED_AF, nh[0], c->desc->name);
 
@@ -2103,6 +2106,366 @@ bgp_decode_nlri_flow6(struct bgp_parse_state *s, byte *pos, uint len, rta *a)
   }
 }
 
+static inline void
+bgp_encode_evpn_ip(byte **pos, uint *size, ip_addr ip)
+{
+  if (ipa_is_ip4(ip))
+  {
+    **pos = IP4_MAX_PREFIX_LENGTH;
+    put_ip4(*pos+1, ipa_to_ip4(ip));
+    ADVANCE(*pos, *size, 1+4);
+  }
+  else
+  {
+    **pos = IP6_MAX_PREFIX_LENGTH;
+    put_ip6(*pos+1, ipa_to_ip6(ip));
+    ADVANCE(*pos, *size, 1+16);
+  }
+}
+
+static inline ip_addr
+bgp_decode_evpn_ip(struct bgp_parse_state *s, byte **pos, uint *len)
+{
+  uint alen = **pos;	/* Assume this is validated by caller */
+  uint blen = 1 + (alen >> 3);
+
+  if (*len < blen)
+    bgp_parse_error(s, 1);
+
+  ip_addr ip;
+  if (alen == IP4_MAX_PREFIX_LENGTH)
+    ip = ipa_from_ip4(get_ip4(*pos + 1));
+  else if (alen == IP6_MAX_PREFIX_LENGTH)
+    ip = ipa_from_ip6(get_ip6(*pos + 1));
+  else
+    bgp_parse_error(s, 10); /* ? */
+
+  ADVANCE(*pos, *len, blen);
+  return ip;
+}
+
+static uint
+bgp_encode_evpn_eth(struct bgp_write_state *s UNUSED, const net_addr_evpn *net, byte *buf, uint size)
+{
+  byte *pos = buf;
+
+  /* Encode route distinguisher */
+  put_u64(pos, net->rd);
+  ADVANCE(pos, size, 8);
+
+  /* Encode ethernet segment ID */
+  memcpy(pos, &net->eth.esi, 10);
+  ADVANCE(pos, size, 10);
+
+  /* Encode ethernet tag ID */
+  put_u32(pos, net->tag);
+  ADVANCE(pos, size, 4);
+
+  /* Encode MPLS label - XXX */
+  put_u24(pos, 0);
+  ADVANCE(pos, size, 3);
+
+  return pos - buf;
+}
+
+static void
+bgp_decode_evpn_eth(struct bgp_parse_state *s, net_addr_evpn *net, byte *pos, uint len)
+{
+  if (len < (8+10+4+3))
+    bgp_parse_error(s, 1);
+
+  /* Decode route distinguisher */
+  u64 rd = get_u64(pos);
+  ADVANCE(pos, len, 8);
+
+  /* Decode ethernet segment ID */
+  evpn_esi esi;
+  memcpy(&esi, pos, 10);
+  ADVANCE(pos, len, 10);
+
+  /* Decode ethernet tag ID */
+  u32 tag = get_u32(pos);
+  ADVANCE(pos, len, 4);
+
+  /* Decode MPLS label - XXX */
+  u32 label UNUSED = get_u24(pos);
+  ADVANCE(pos, len, 3);
+
+  if (len)
+    bgp_parse_error(s, 1);
+
+  net->eth = NET_ADDR_EVPN_ETH(rd, tag, esi);
+}
+
+static uint
+bgp_encode_evpn_mac(struct bgp_write_state *s UNUSED, const net_addr_evpn *net, byte *buf, uint size)
+{
+  byte *pos = buf;
+
+  /* Encode route distinguisher */
+  put_u64(pos, net->rd);
+  ADVANCE(pos, size, 8);
+
+  /* Encode ethernet segment ID - XXX */
+  memset(pos, 0, 10);
+  ADVANCE(pos, size, 10);
+
+  /* Encode ethernet tag ID */
+  put_u32(pos, net->tag);
+  ADVANCE(pos, size, 4);
+
+  /* Encode MAC address */
+  pos[0] = 48;
+  memcpy(pos+1, &net->mac.mac, 6);
+  ADVANCE(pos, size, 7);
+
+  /* Encode IP address */
+  pos[0] = 0;
+  if (net->length == sizeof(net_addr_evpn_mac_ip))
+    bgp_encode_evpn_ip(&pos, &size, net->mac_ip.ip);
+  else
+    ADVANCE(pos, size, 1);
+
+  /* Encode MPLS label - XXX */
+  put_u24(pos, 0);
+  ADVANCE(pos, size, 3);
+
+  return pos - buf;
+}
+
+static void
+bgp_decode_evpn_mac(struct bgp_parse_state *s, net_addr_evpn *net, byte *pos, uint len)
+{
+  if (len < (8+10+4+7+1))
+    bgp_parse_error(s, 1);
+
+  /* Decode route distinguisher */
+  u64 rd = get_u64(pos);
+  ADVANCE(pos, len, 8);
+
+  /* Decode ethernet segment ID - XXX */
+  evpn_esi esi;
+  memcpy(&esi, pos, 10);
+  ADVANCE(pos, len, 10);
+
+  /* Decode ethernet tag ID */
+  u32 tag = get_u32(pos);
+  ADVANCE(pos, len, 4);
+
+  /* Decode MAC address */
+  if (pos[0] != 48)
+    bgp_parse_error(s, 10); /* ? */
+
+  mac_addr mac;
+  memcpy(&mac, pos+1, 6);
+  ADVANCE(pos, len, 7);
+
+  /* Decode IP address */
+  ip_addr ip = IPA_NONE;
+  if (pos[0])
+    ip = bgp_decode_evpn_ip(s, &pos, &len);
+  else
+    ADVANCE(pos, len, 1);
+
+  /* Decode MPLS labels - XXX */
+  if (len < 3)
+    bgp_parse_error(s, 1);
+
+  u32 label1 UNUSED, label2 UNUSED;
+  label1 = get_u24(pos);
+  ADVANCE(pos, len, 3);
+
+  if (len >= 3)
+  {
+    label2 = get_u24(pos);
+    ADVANCE(pos, len, 3);
+  }
+
+  if (len)
+    bgp_parse_error(s, 1);
+
+  if (ipa_zero(ip))
+    net->mac = NET_ADDR_EVPN_MAC(rd, tag, mac);
+  else
+    net->mac_ip = NET_ADDR_EVPN_MAC_IP(rd, tag, mac, ip);
+}
+
+static uint
+bgp_encode_evpn_imet(struct bgp_write_state *s UNUSED, const net_addr_evpn *net, byte *buf, uint size)
+{
+  byte *pos = buf;
+
+  /* Encode route distinguisher */
+  put_u64(pos, net->rd);
+  ADVANCE(pos, size, 8);
+
+  /* Encode ethernet tag ID */
+  put_u32(pos, net->tag);
+  ADVANCE(pos, size, 4);
+
+  /* Encode router IP address */
+  bgp_encode_evpn_ip(&pos, &size, net->imet.rtr);
+
+  return pos - buf;
+}
+
+static void
+bgp_decode_evpn_imet(struct bgp_parse_state *s, net_addr_evpn *net, byte *pos, uint len)
+{
+  if (len < (8+4+1))
+    bgp_parse_error(s, 1);
+
+  /* Decode route distinguisher */
+  u64 rd = get_u64(pos);
+  ADVANCE(pos, len, 8);
+
+  /* Decode ethernet tag ID */
+  u32 tag = get_u32(pos);
+  ADVANCE(pos, len, 4);
+
+  /* Decode router IP address */
+  ip_addr rtr = bgp_decode_evpn_ip(s, &pos, &len);
+
+  if (len)
+    bgp_parse_error(s, 1);
+
+  net->imet = NET_ADDR_EVPN_IMET(rd, tag, rtr);
+}
+
+static uint
+bgp_encode_evpn_es(struct bgp_write_state *s UNUSED, const net_addr_evpn *net, byte *buf, uint size)
+{
+  byte *pos = buf;
+
+  /* Encode route distinguisher */
+  put_u64(pos, net->rd);
+  ADVANCE(pos, size, 8);
+
+  /* Encode ethernet segment ID */
+  memcpy(pos, &net->es.esi, 10);
+  ADVANCE(pos, size, 10);
+
+  /* Encode router IP address */
+  bgp_encode_evpn_ip(&pos, &size, net->es.rtr);
+
+  return pos - buf;
+}
+
+static void
+bgp_decode_evpn_es(struct bgp_parse_state *s, net_addr_evpn *net, byte *pos, uint len)
+{
+  if (len < (8+10+1))
+    bgp_parse_error(s, 1);
+
+  /* Decode route distinguisher */
+  u64 rd = get_u64(pos);
+  ADVANCE(pos, len, 8);
+
+  /* Decode ethernet segment ID */
+  evpn_esi esi;
+  memcpy(&esi, pos, 10);
+  ADVANCE(pos, len, 10);
+
+  /* Decode router IP address */
+  ip_addr rtr = bgp_decode_evpn_ip(s, &pos, &len);
+
+  if (len)
+    bgp_parse_error(s, 1);
+
+  net->es = NET_ADDR_EVPN_ES(rd, esi, rtr);
+}
+
+static uint
+bgp_encode_nlri_evpn(struct bgp_write_state *s, struct bgp_bucket *buck, byte *buf, uint size)
+{
+  byte *pos = buf;
+
+  while (!EMPTY_LIST(buck->prefixes) && (size >= BGP_NLRI_EVPN_MAX))
+  {
+    struct bgp_prefix *px = HEAD(buck->prefixes);
+    const net_addr_evpn *net = (void *) px->net;
+
+    /* Encode path ID */
+    if (s->add_path)
+    {
+      put_u32(pos, px->path_id);
+      ADVANCE(pos, size, 4);
+    }
+
+    /* Encode EVPN header */
+    pos[0] = net->subtype;
+    pos[1] = 0;
+    ADVANCE(pos, size, 2);
+
+    uint rlen;
+    switch (net->subtype)
+    {
+    case NET_EVPN_ETH:	rlen = bgp_encode_evpn_eth(s, net, pos, size); break;
+    case NET_EVPN_MAC:	rlen = bgp_encode_evpn_mac(s, net, pos, size); break;
+    case NET_EVPN_IMET:	rlen = bgp_encode_evpn_imet(s, net, pos, size); break;
+    case NET_EVPN_ES:	rlen = bgp_encode_evpn_es(s, net, pos, size); break;
+    }
+
+    /* Fix length */
+    pos[-1] = rlen;
+
+    ADVANCE(pos, size, rlen);
+
+    if (!s->sham)
+      bgp_free_prefix(s->channel, px);
+    else
+      rem_node(&px->buck_node);
+  }
+
+  return pos - buf;
+}
+
+static void
+bgp_decode_nlri_evpn(struct bgp_parse_state *s, byte *pos, uint len, rta *a)
+{
+  while (len)
+  {
+    net_addr_evpn net;
+    u32 path_id = 0;
+
+    /* Decode path ID */
+    if (s->add_path)
+    {
+      if (len < 5)
+	bgp_parse_error(s, 1);
+
+      path_id = get_u32(pos);
+      ADVANCE(pos, len, 4);
+    }
+
+    if (len < 2)
+      bgp_parse_error(s, 1);
+
+    /* Decode EVPN header */
+    uint type = pos[0];
+    uint rlen = pos[1];
+    ADVANCE(pos, len, 2);
+
+    if (len < rlen)
+      bgp_parse_error(s, 1);
+
+    switch (type)
+    {
+    case NET_EVPN_ETH:	bgp_decode_evpn_eth(s, &net, pos, rlen); break;
+    case NET_EVPN_MAC:	bgp_decode_evpn_mac(s, &net, pos, rlen); break;
+    case NET_EVPN_IMET:	bgp_decode_evpn_imet(s, &net, pos, rlen); break;
+    case NET_EVPN_ES:	bgp_decode_evpn_es(s, &net, pos, rlen); break;
+    default: net = (net_addr_evpn){}; // XXX
+    }
+
+    ADVANCE(pos, len, rlen);
+
+    // XXXX validate prefix
+
+    bgp_rte_update(s, (net_addr *) &net, path_id, a);
+  }
+}
+
 
 static const struct bgp_af_desc bgp_af_table[] = {
   {
@@ -2230,6 +2593,16 @@ static const struct bgp_af_desc bgp_af_table[] = {
     .encode_next_hop = bgp_encode_next_hop_none,
     .decode_next_hop = bgp_decode_next_hop_none,
     .update_next_hop = bgp_update_next_hop_none,
+  },
+  {
+    .afi = BGP_AF_EVPN,
+    .net = NET_EVPN,
+    .name = "evpn",
+    .encode_nlri = bgp_encode_nlri_evpn,
+    .decode_nlri = bgp_decode_nlri_evpn,
+    .encode_next_hop = bgp_encode_next_hop_ip,
+    .decode_next_hop = bgp_decode_next_hop_ip,
+    .update_next_hop = bgp_update_next_hop_ip,
   },
 };
 
