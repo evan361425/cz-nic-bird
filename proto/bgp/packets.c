@@ -39,6 +39,7 @@
 #define BGP_MPLS_MAX		10	/* Max number of labels that 24*n <= 255 */
 #define BGP_MPLS_NULL		3	/* Implicit NULL label */
 #define BGP_MPLS_MAGIC		0x800000 /* Magic withdraw label value, RFC 3107 3 */
+#define SEND_HOLD_TIME		(60*8)
 
 
 static struct tbf rl_rcv_update = TBF_DEFAULT_LOG_LIMITS;
@@ -2585,7 +2586,6 @@ done:
   BGP_TRACE_RL(&rl_snd_update, D_PACKETS, "Sending UPDATE");
   p->stats.tx_updates++;
   lp_restore(tmp_linpool, &tmpp);
-
   return res;
 }
 
@@ -3006,8 +3006,22 @@ bgp_send(struct bgp_conn *conn, uint type, uint len)
   memset(buf, 0xff, BGP_HDR_MARKER_LENGTH);
   put_u16(buf+16, len);
   buf[18] = type;
-
-  return sk_send(sk, len);
+  
+  int success = sk_send(sk, len);
+  
+  
+  if (success && type == PKT_UPDATE )
+  {
+    if (conn->channels_to_send)
+    {
+      bgp_start_timer(conn->send_hold_timer, SEND_HOLD_TIME);
+    }
+    else
+    {
+      bgp_start_timer(conn->send_hold_timer, 0);
+    }
+  }
+  return success;
 }
 
 /**
@@ -3060,7 +3074,7 @@ bgp_fire_tx(struct bgp_conn *conn)
   else if (s & (1 << PKT_KEEPALIVE))
   {
     conn->packets_to_send &= ~(1 << PKT_KEEPALIVE);
-    BGP_TRACE(D_PACKETS, "Sending KEEPALIVE");
+    BGP_TRACE(D_PACKETS, "Sending KEEPALIVE %s", conn->channels_to_send ? "(PENDING UPDATE)":"(no update)");
     bgp_start_timer(conn->keepalive_timer, conn->keepalive_time);
     return bgp_send(conn, PKT_KEEPALIVE, BGP_HEADER_LENGTH);
   }
@@ -3137,6 +3151,8 @@ bgp_schedule_packet(struct bgp_conn *conn, struct bgp_channel *c, int type)
     {
       conn->last_channel = c->index;
       conn->last_channel_count = 0;
+      bgp_start_timer(conn->send_hold_timer, SEND_HOLD_TIME);
+      log("start timer");
     }
 
     c->packets_to_send |= 1 << type;
@@ -3152,7 +3168,6 @@ void
 bgp_kick_tx(void *vconn)
 {
   struct bgp_conn *conn = vconn;
-
   DBG("BGP: kicking TX\n");
   uint max = 1024;
   while (--max && (bgp_fire_tx(conn) > 0))

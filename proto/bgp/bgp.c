@@ -375,6 +375,8 @@ bgp_close_conn(struct bgp_conn *conn)
   conn->keepalive_timer = NULL;
   rfree(conn->hold_timer);
   conn->hold_timer = NULL;
+  rfree(conn->send_hold_timer);
+  conn->send_hold_timer = NULL;
   rfree(conn->tx_ev);
   conn->tx_ev = NULL;
   rfree(conn->sk);
@@ -1061,6 +1063,14 @@ bgp_keepalive_timeout(timer *t)
     ev_run(conn->tx_ev);
 }
 
+void
+bgp_send_hold_timeout(timer *t){
+  struct bgp_conn *conn = t->data;
+  log(L_ERR "Send Hold Timer Expired");
+  bgp_start_timer(conn->connect_timer, 0);
+  bgp_conn_enter_idle_state(conn); /*contains  bgp_close_conn which hopefully release all bgp resources*/
+}
+
 static void
 bgp_setup_conn(struct bgp_proto *p, struct bgp_conn *conn)
 {
@@ -1075,6 +1085,7 @@ bgp_setup_conn(struct bgp_proto *p, struct bgp_conn *conn)
   conn->connect_timer	= tm_new_init(p->p.pool, bgp_connect_timeout,	 conn, 0, 0);
   conn->hold_timer 	= tm_new_init(p->p.pool, bgp_hold_timeout,	 conn, 0, 0);
   conn->keepalive_timer	= tm_new_init(p->p.pool, bgp_keepalive_timeout, conn, 0, 0);
+  conn->send_hold_timer = tm_new_init(p->p.pool, bgp_send_hold_timeout,	 conn, 0, 0);
 
   conn->tx_ev = ev_new_init(p->p.pool, bgp_kick_tx, conn);
 }

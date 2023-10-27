@@ -298,6 +298,7 @@ struct bgp_conn {
   timer *connect_timer;
   timer *hold_timer;
   timer *keepalive_timer;
+  timer *send_hold_timer;
   event *tx_ev;
   u32 packets_to_send;			/* Bitmap of packet types to be sent */
   u32 channels_to_send;			/* Bitmap of channels with packets to be sent */
