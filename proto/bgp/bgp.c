@@ -375,8 +375,11 @@ bgp_close_conn(struct bgp_conn *conn)
   conn->keepalive_timer = NULL;
   rfree(conn->hold_timer);
   conn->hold_timer = NULL;
-  rfree(conn->send_hold_timer);
-  conn->send_hold_timer = NULL;
+  if (!conn->bgp->cf->disable_send_hold_timer)
+  {
+    rfree(conn->send_hold_timer);
+    conn->send_hold_timer = NULL;
+  }
   rfree(conn->tx_ev);
   conn->tx_ev = NULL;
   rfree(conn->sk);
@@ -698,6 +701,9 @@ bgp_conn_enter_established_state(struct bgp_conn *conn)
   proto_notify_state(&p->p, PS_UP);
   bmp_peer_up(p, conn->local_open_msg, conn->local_open_length,
 	      conn->remote_open_msg, conn->remote_open_length);
+
+  if (p->cf->disable_listening)
+    conn->sk->rx_hook = NULL;	/* broking hook for simulating reading problem */
 }
 
 static void
@@ -1024,6 +1030,8 @@ bgp_hold_timeout(timer *t)
 {
   struct bgp_conn *conn = t->data;
   struct bgp_proto *p = conn->bgp;
+  if (p->cf->disable_listening)
+    return;
 
   DBG("BGP: Hold timeout\n");
 
@@ -1085,7 +1093,8 @@ bgp_setup_conn(struct bgp_proto *p, struct bgp_conn *conn)
   conn->connect_timer	= tm_new_init(p->p.pool, bgp_connect_timeout,	 conn, 0, 0);
   conn->hold_timer 	= tm_new_init(p->p.pool, bgp_hold_timeout,	 conn, 0, 0);
   conn->keepalive_timer	= tm_new_init(p->p.pool, bgp_keepalive_timeout, conn, 0, 0);
-  conn->send_hold_timer = tm_new_init(p->p.pool, bgp_send_hold_timeout,	 conn, 0, 0);
+  if (!p->cf->disable_send_hold_timer)
+    conn->send_hold_timer = tm_new_init(p->p.pool, bgp_send_hold_timeout, conn, 0, 0);
 
   conn->tx_ev = ev_new_init(p->p.pool, bgp_kick_tx, conn);
 }

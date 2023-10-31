@@ -3006,21 +3006,12 @@ bgp_send(struct bgp_conn *conn, uint type, uint len)
   memset(buf, 0xff, BGP_HDR_MARKER_LENGTH);
   put_u16(buf+16, len);
   buf[18] = type;
-  
+
   int success = sk_send(sk, len);
-  
-  
-  if (success && type == PKT_UPDATE )
-  {
-    if (conn->channels_to_send)
-    {
+
+  if (!conn->bgp->cf->disable_send_hold_timer)
+    if (success && (type == PKT_UPDATE || type == PKT_KEEPALIVE))
       bgp_start_timer(conn->send_hold_timer, SEND_HOLD_TIME);
-    }
-    else
-    {
-      bgp_start_timer(conn->send_hold_timer, 0);
-    }
-  }
   return success;
 }
 
@@ -3151,8 +3142,6 @@ bgp_schedule_packet(struct bgp_conn *conn, struct bgp_channel *c, int type)
     {
       conn->last_channel = c->index;
       conn->last_channel_count = 0;
-      bgp_start_timer(conn->send_hold_timer, SEND_HOLD_TIME);
-      log("start timer");
     }
 
     c->packets_to_send |= 1 << type;

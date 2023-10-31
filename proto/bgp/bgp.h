@@ -117,6 +117,8 @@ struct bgp_config {
   int setkey;				/* Set MD5 password to system SA/SP database */
   u8  local_role;			/* Set peering role with neighbor [RFC 9234] */
   int require_roles;			/* Require configured roles on both sides */
+  int disable_send_hold_timer;
+  int disable_listening;			/* Stop reading messages after handshake (for simulating error) */
   /* Times below are in seconds */
   unsigned gr_time;			/* Graceful restart timeout */
   unsigned llgr_time;			/* Long-lived graceful restart stale time */
@@ -550,6 +552,7 @@ void bgp_conn_enter_openconfirm_state(struct bgp_conn *conn);
 void bgp_conn_enter_established_state(struct bgp_conn *conn);
 void bgp_conn_enter_close_state(struct bgp_conn *conn);
 void bgp_conn_enter_idle_state(struct bgp_conn *conn);
+void broke_bgp_listening(struct channel *C);
 void bgp_handle_graceful_restart(struct bgp_proto *p);
 void bgp_graceful_restart_done(struct bgp_channel *c);
 void bgp_refresh_begin(struct bgp_channel *c);
