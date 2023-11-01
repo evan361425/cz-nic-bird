@@ -117,7 +117,7 @@ struct bgp_config {
   int setkey;				/* Set MD5 password to system SA/SP database */
   u8  local_role;			/* Set peering role with neighbor [RFC 9234] */
   int require_roles;			/* Require configured roles on both sides */
-  int disable_send_hold_timer;
+  int send_hold_time;
   int disable_listening;			/* Stop reading messages after handshake (for simulating error) */
   /* Times below are in seconds */
   unsigned gr_time;			/* Graceful restart timeout */
@@ -309,7 +309,7 @@ struct bgp_conn {
   int notify_code, notify_subcode, notify_size;
   byte *notify_data;
 
-  uint hold_time, keepalive_time;	/* Times calculated from my and neighbor's requirements */
+  uint hold_time, keepalive_time, send_hold_time;	/* Times calculated from my and neighbor's requirements */
 };
 
 struct bgp_proto {

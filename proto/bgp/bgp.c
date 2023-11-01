@@ -375,11 +375,8 @@ bgp_close_conn(struct bgp_conn *conn)
   conn->keepalive_timer = NULL;
   rfree(conn->hold_timer);
   conn->hold_timer = NULL;
-  if (!conn->bgp->cf->disable_send_hold_timer)
-  {
-    rfree(conn->send_hold_timer);
-    conn->send_hold_timer = NULL;
-  }
+  rfree(conn->send_hold_timer);
+  conn->send_hold_timer = NULL;
   rfree(conn->tx_ev);
   conn->tx_ev = NULL;
   rfree(conn->sk);
@@ -1093,8 +1090,7 @@ bgp_setup_conn(struct bgp_proto *p, struct bgp_conn *conn)
   conn->connect_timer	= tm_new_init(p->p.pool, bgp_connect_timeout,	 conn, 0, 0);
   conn->hold_timer 	= tm_new_init(p->p.pool, bgp_hold_timeout,	 conn, 0, 0);
   conn->keepalive_timer	= tm_new_init(p->p.pool, bgp_keepalive_timeout, conn, 0, 0);
-  if (!p->cf->disable_send_hold_timer)
-    conn->send_hold_timer = tm_new_init(p->p.pool, bgp_send_hold_timeout, conn, 0, 0);
+  conn->send_hold_timer = tm_new_init(p->p.pool, bgp_send_hold_timeout, conn, 0, 0);
 
   conn->tx_ev = ev_new_init(p->p.pool, bgp_kick_tx, conn);
 }

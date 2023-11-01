@@ -39,7 +39,6 @@
 #define BGP_MPLS_MAX		10	/* Max number of labels that 24*n <= 255 */
 #define BGP_MPLS_NULL		3	/* Implicit NULL label */
 #define BGP_MPLS_MAGIC		0x800000 /* Magic withdraw label value, RFC 3107 3 */
-#define SEND_HOLD_TIME		(60*8)
 
 
 static struct tbf rl_rcv_update = TBF_DEFAULT_LOG_LIMITS;
@@ -874,6 +873,10 @@ bgp_rx_open(struct bgp_conn *conn, byte *pkt, uint len)
     (p->cf->keepalive_time * hold_time / p->cf->hold_time) :
     hold_time / 3;
 
+  uint send_hold_time = (p->cf->send_hold_time >= 0) ?
+    (p->cf->send_hold_time * hold_time / p->cf->hold_time) :
+    2 * hold_time;
+
   /* Keepalive time might be rounded down to zero */
   if (hold_time && !keepalive_time)
     keepalive_time = 1;
@@ -982,6 +985,7 @@ bgp_rx_open(struct bgp_conn *conn, byte *pkt, uint len)
   /* Update our local variables */
   conn->hold_time = hold_time;
   conn->keepalive_time = keepalive_time;
+  conn->send_hold_time = send_hold_time;
   conn->as4_session = conn->local_caps->as4_support && caps->as4_support;
   conn->ext_messages = conn->local_caps->ext_messages && caps->ext_messages;
   p->remote_id = id;
@@ -991,6 +995,7 @@ bgp_rx_open(struct bgp_conn *conn, byte *pkt, uint len)
 
   bgp_schedule_packet(conn, NULL, PKT_KEEPALIVE);
   bgp_start_timer(conn->hold_timer, conn->hold_time);
+  bgp_start_timer(conn->send_hold_timer, conn->send_hold_time);
   bgp_conn_enter_openconfirm_state(conn);
 }
 
@@ -3009,9 +3014,8 @@ bgp_send(struct bgp_conn *conn, uint type, uint len)
 
   int success = sk_send(sk, len);
 
-  if (!conn->bgp->cf->disable_send_hold_timer)
-    if (success && (type == PKT_UPDATE || type == PKT_KEEPALIVE))
-      bgp_start_timer(conn->send_hold_timer, SEND_HOLD_TIME);
+  if (success && (type == PKT_UPDATE || type == PKT_KEEPALIVE))
+    bgp_start_timer(conn->send_hold_timer, conn->send_hold_time);
   return success;
 }
 
@@ -3065,7 +3069,7 @@ bgp_fire_tx(struct bgp_conn *conn)
   else if (s & (1 << PKT_KEEPALIVE))
   {
     conn->packets_to_send &= ~(1 << PKT_KEEPALIVE);
-    BGP_TRACE(D_PACKETS, "Sending KEEPALIVE %s", conn->channels_to_send ? "(PENDING UPDATE)":"(no update)");
+    BGP_TRACE(D_PACKETS, "Sending KEEPALIVE");
     bgp_start_timer(conn->keepalive_timer, conn->keepalive_time);
     return bgp_send(conn, PKT_KEEPALIVE, BGP_HEADER_LENGTH);
   }
@@ -3157,6 +3161,7 @@ void
 bgp_kick_tx(void *vconn)
 {
   struct bgp_conn *conn = vconn;
+
   DBG("BGP: kicking TX\n");
   uint max = 1024;
   while (--max && (bgp_fire_tx(conn) > 0))
@@ -3177,7 +3182,10 @@ bgp_tx(sock *sk)
     ;
 
   if (!max && !ev_active(conn->tx_ev))
+  {
     ev_schedule(conn->tx_ev);
+    bgp_start_timer(conn->send_hold_timer, conn->send_hold_time);
+  }
 }
 
 
