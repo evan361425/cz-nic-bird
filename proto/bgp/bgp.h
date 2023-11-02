@@ -118,7 +118,7 @@ struct bgp_config {
   u8  local_role;			/* Set peering role with neighbor [RFC 9234] */
   int require_roles;			/* Require configured roles on both sides */
   int send_hold_time;
-  int disable_listening;			/* Stop reading messages after handshake (for simulating error) */
+  int disable_rx;			/* Stop reading messages after handshake (for simulating error) */
   /* Times below are in seconds */
   unsigned gr_time;			/* Graceful restart timeout */
   unsigned llgr_time;			/* Long-lived graceful restart stale time */

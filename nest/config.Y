@@ -905,7 +905,7 @@ CF_CLI(RELOAD, proto_patt, <protocol> | \"<pattern>\" | all, [[Reload protocol]]
 { proto_apply_cmd($2, proto_cmd_reload, 1, CMD_RELOAD); } ;
 CF_CLI(RELOAD IN, proto_patt, <protocol> | \"<pattern>\" | all, [[Reload protocol (just imported routes)]])
 { proto_apply_cmd($3, proto_cmd_reload, 1, CMD_RELOAD_IN); } ;
-CF_CLI(RELOAD OUT, proto_patt, [[Reload protocol (just exported routes)]])
+CF_CLI(RELOAD OUT, proto_patt, <protocol> | \"<pattern>\" | all, [[Reload protocol (just exported routes)]])
 { proto_apply_cmd($3, proto_cmd_reload, 1, CMD_RELOAD_OUT); } ;
 
 CF_CLI_HELP(DEBUG, ..., [[Control protocol debugging via BIRD logs]])

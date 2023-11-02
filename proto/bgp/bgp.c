@@ -699,7 +699,7 @@ bgp_conn_enter_established_state(struct bgp_conn *conn)
   bmp_peer_up(p, conn->local_open_msg, conn->local_open_length,
 	      conn->remote_open_msg, conn->remote_open_length);
 
-  if (p->cf->disable_listening)
+  if (p->cf->disable_rx)
     conn->sk->rx_hook = NULL;	/* broking hook for simulating reading problem */
 }
 
@@ -1027,7 +1027,7 @@ bgp_hold_timeout(timer *t)
 {
   struct bgp_conn *conn = t->data;
   struct bgp_proto *p = conn->bgp;
-  if (p->cf->disable_listening)
+  if (p->cf->disable_rx)
     return;
 
   DBG("BGP: Hold timeout\n");

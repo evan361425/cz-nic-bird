@@ -32,7 +32,7 @@ CF_KEYWORDS(BGP, LOCAL, NEIGHBOR, AS, HOLD, TIME, CONNECT, RETRY, KEEPALIVE,
 	LIVED, STALE, IMPORT, IBGP, EBGP, MANDATORY, INTERNAL, EXTERNAL, SETS,
 	DYNAMIC, RANGE, NAME, DIGITS, BGP_AIGP, AIGP, ORIGINATE, COST, ENFORCE,
 	FIRST, FREE, VALIDATE, BASE, ROLE, ROLES, PEER, PROVIDER, CUSTOMER,
-	RS_SERVER, RS_CLIENT, REQUIRE, BGP_OTC, GLOBAL, SEND, LISTENING)
+	RS_SERVER, RS_CLIENT, REQUIRE, BGP_OTC, GLOBAL, SEND)
 
 %type <i> bgp_nh
 %type <i32> bgp_afi
@@ -217,7 +217,7 @@ bgp_proto:
  | bgp_proto LOCAL ROLE bgp_role_name ';' { BGP_CFG->local_role = $4; }
  | bgp_proto REQUIRE ROLES bool ';' { BGP_CFG->require_roles = $4; }
  | bgp_proto SEND HOLD TIME expr';' { BGP_CFG->send_hold_time = $5; }
- | bgp_proto DISABLE LISTENING ';' { BGP_CFG->disable_listening = 1; }
+ | bgp_proto DISABLE RX bool ';' { BGP_CFG->disable_rx = $4; }
  ;
 
 bgp_afi:

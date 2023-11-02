@@ -2591,6 +2591,7 @@ done:
   BGP_TRACE_RL(&rl_snd_update, D_PACKETS, "Sending UPDATE");
   p->stats.tx_updates++;
   lp_restore(tmp_linpool, &tmpp);
+
   return res;
 }
 
