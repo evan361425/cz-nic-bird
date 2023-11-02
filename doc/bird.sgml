@@ -3462,15 +3462,17 @@ be used in explicit configuration.
 	per AFI/SAFI pair instead of per protocol. Default: set by protocol-wide
 	option.
 	
-	<tag><label id="bgp-send-hold-timer">send hold timer<m/number/</tag>
+	<tag><label id="bgp-send-hold-timer">send hold time <m/number/</tag>
 	Send hold timer drops connection if the other side sends keepalives,
 	but does not listen. This may happen due to overhelming. More detailed info 
 	can be found on
-	<HTMLURL URL="https://datatracker.ietf.org/doc/html/draft-spaghetti-idr-bgp-sendholdtimer#name-restarting-the-sendholdtime" name="datatracker.ietf.org">
-	Option disable-send-hold-timer causes not dropping connection in such case.
-	Option disable-listening is intended only for testing this feature and should
-	not be used anywhere else. It discards listening hook and causes ignoring of 
-	hold timer.
+	<HTMLURL URL="https://datatracker.ietf.org/doc/html/draft-spaghetti-idr-bgp-sendholdtimer#name-restarting-the-sendholdtime" name="datatracker.ietf.org">.
+	Option <cf/send hold time/ sets the timelimit of the timer. If not set,
+	default value is computed as two times hold timer timelimit. If it is
+	set to zero, timer is disabled.
+
+	Option <cf/disable rx/ is intended only for testing this feature and should
+	not be used anywhere else. It discards rx_hook and causes ignoring hold timer.
 </descrip>
 
 <sect1>Attributes
